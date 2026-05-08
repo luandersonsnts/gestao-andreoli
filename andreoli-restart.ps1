@@ -123,16 +123,26 @@ Write-Host "Abrir: http://localhost:5174/"
 $autoSync = Join-Path $root "auto-sync-github.ps1"
 if (Test-Path $autoSync) {
   try {
-    Start-Process -FilePath "powershell.exe" -ArgumentList @(
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-WindowStyle",
-      "Minimized",
-      "-File",
-      $autoSync
-    ) | Out-Null
-    Write-Host "Auto-sync GitHub iniciado (janela minimizada)."
+    $running = $false
+    try {
+      $ps = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "powershell.exe" -and $_.CommandLine -like ("*" + $autoSync + "*") }
+      if ($ps) { $running = $true }
+    } catch { $running = $false }
+
+    if (-not $running) {
+      Start-Process -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Minimized",
+        "-File",
+        $autoSync
+      ) | Out-Null
+      Write-Host "Auto-sync GitHub iniciado (janela minimizada)."
+    } else {
+      Write-Host "Auto-sync GitHub já está rodando."
+    }
   } catch {
     Write-Host ("Não conseguiu iniciar auto-sync GitHub: " + $_.Exception.Message) -ForegroundColor Yellow
   }
