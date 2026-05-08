@@ -119,3 +119,21 @@ for ($i = 0; $i -lt 12; $i += 1) {
 Write-Host ("API (3001) OK: " + $apiOk)
 Write-Host ("WEB (5174) OK: " + $webOk)
 Write-Host "Abrir: http://localhost:5174/"
+
+$autoSync = Join-Path $root "auto-sync-github.ps1"
+if (Test-Path $autoSync) {
+  try {
+    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-WindowStyle",
+      "Minimized",
+      "-File",
+      $autoSync
+    ) | Out-Null
+    Write-Host "Auto-sync GitHub iniciado (janela minimizada)."
+  } catch {
+    Write-Host ("Não conseguiu iniciar auto-sync GitHub: " + $_.Exception.Message) -ForegroundColor Yellow
+  }
+}
