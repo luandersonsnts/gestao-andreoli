@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  COMERCIAL
+  LEITURA
+}
+
+enum ClienteCategoria {
+  VIP
+  NORMAL
+  RISCO
+}
+
+enum StatusPagamento {
+  PAGO
+  PENDENTE
+  ATRASADO
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  nome         String?
+  role         UserRole @default(COMERCIAL)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Cliente {
+  id          String   @id @default(uuid())
+  nome        String
+  telefone    String?
+  active      Boolean  @default(true)
+  pontuacaoRanking Int @default(0)
+  categoria   ClienteCategoria @default(NORMAL)
+  dataNascimento DateTime?
+  fotoPath    String?
+  tirouFoto   Boolean  @default(false)
+  observacoes String?
+  cotas       Cota[]
+  boletosEnvios BoletoEnvio[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([nome])
+  @@index([telefone])
+}
+
+model Cota {
+  id                 String   @id @default(uuid())
+  clienteId          String
+  cliente            Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  grupo              String
+  cota               String
+  dataEntrada        DateTime
+  administradora     String
+  assembleiaDia      Int?
+  vencimentoDiaMensal Int?
+  antecedenciaPrimeiraParcelaDias Int?
+  statusPagamento    StatusPagamento @default(PENDENTE)
+  contemplado        Boolean  @default(false)
+  parcelaContemplacao Int?
+  dataContemplacao   DateTime?
+  parcela1           DateTime?
+  parcela2           DateTime?
+  parcela3           DateTime?
+  parcela4           DateTime?
+  parcela5           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([clienteId])
+  @@index([administradora])
+  @@index([dataEntrada])
+  @@unique([clienteId, grupo, cota, administradora])
+}
+
+model BoletoEnvio {
+  id         String   @id @default(uuid())
+  clienteId  String?
+  cliente    Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  cotaId     String?
+  cotaDb     Cota?    @relation(fields: [cotaId], references: [id], onDelete: SetNull)
+  arquivo    String
+  grupo      String?
+  cota       String?
+  telefone   String?
+  status     String
+  erro       String?
+  tentativas Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  sentAt     DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([clienteId])
+  @@index([cotaId])
+}
