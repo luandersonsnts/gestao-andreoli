@@ -17,11 +17,41 @@ if ($LASTEXITCODE -ne 0) {
 $originUrl = ""
 try { $originUrl = (git remote get-url origin 2>$null) } catch { $originUrl = "" }
 if (-not $originUrl) {
-  Write-Host "Remote 'origin' não está configurado." -ForegroundColor Yellow
-  Write-Host "Configure e rode de novo:" -ForegroundColor Yellow
-  Write-Host "  git remote add origin https://github.com/SEU_USUARIO/SEU_REPO.git"
-  Write-Host "  git push -u origin main"
-  exit 2
+  try {
+    & gh --version | Out-Null
+  } catch {
+    Write-Host "GitHub CLI (gh) não encontrado. Instale e rode novamente." -ForegroundColor Yellow
+    exit 2
+  }
+
+  try {
+    & gh auth status -h github.com | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "auth" }
+  } catch {
+    Write-Host "Você precisa logar no GitHub 1x para habilitar o auto-sync:" -ForegroundColor Yellow
+    Write-Host "  gh auth login" -ForegroundColor Yellow
+    exit 3
+  }
+
+  $repoName = (Split-Path -Leaf $root)
+  $repoName = ($repoName -replace "\s+", "-")
+  $repoName = ($repoName -replace "[^a-zA-Z0-9._-]", "")
+  $repoName = $repoName.ToLowerInvariant()
+  if (-not $repoName) { $repoName = "repo" }
+
+  try {
+    & git branch --show-current | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "branch" }
+  } catch {}
+
+  try {
+    & gh repo create $repoName --private --source . --remote origin --push --confirm | Out-Host
+  } catch {
+    Write-Host ("Falha ao criar repo no GitHub: " + $_.Exception.Message) -ForegroundColor Yellow
+    exit 4
+  }
+
+  try { $originUrl = (git remote get-url origin 2>$null) } catch { $originUrl = "" }
 }
 
 Write-Host ("Auto-sync GitHub ativo. origin=" + $originUrl) -ForegroundColor White
@@ -87,4 +117,3 @@ Register-ObjectEvent -InputObject $fsw -EventName Renamed -Action $onChange | Ou
 Register-ObjectEvent -InputObject $fsw -EventName Deleted -Action $onChange | Out-Null
 
 while ($true) { Start-Sleep -Seconds 1 }
-
