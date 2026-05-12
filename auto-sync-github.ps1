@@ -45,7 +45,7 @@ if (-not $originUrl) {
   } catch {}
 
   try {
-    & gh repo create $repoName --private --source . --remote origin --push --confirm | Out-Host
+    & gh repo create $repoName --public --source . --remote origin --push --confirm | Out-Host
   } catch {
     Write-Host ("Falha ao criar repo no GitHub: " + $_.Exception.Message) -ForegroundColor Yellow
     exit 4
@@ -55,6 +55,10 @@ if (-not $originUrl) {
 }
 
 Write-Host ("Auto-sync GitHub ativo. origin=" + $originUrl) -ForegroundColor White
+
+try {
+  & gh repo edit --visibility public | Out-Null
+} catch {}
 
 $debounceMs = 2000
 $pending = $false
