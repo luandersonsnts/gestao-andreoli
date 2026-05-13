@@ -81,7 +81,7 @@ def load_settings() -> Settings:
     min_delay_sec=float(os.environ.get("WA_MIN_DELAY_SEC", "5")),
     max_delay_sec=float(os.environ.get("WA_MAX_DELAY_SEC", "10")),
     max_per_minute=int(os.environ.get("WA_MAX_PER_MINUTE", "10")),
-    wa_send_timeout_sec=int(os.environ.get("WA_SEND_TIMEOUT_SEC", "150")),
+    wa_send_timeout_sec=int(os.environ.get("WA_SEND_TIMEOUT_SEC", "300")),
     min_similarity=float(os.environ.get("PDF_NAME_MIN_SIMILARITY", "0.8")),
     pdf_strict=os.environ.get("PDF_STRICT", "0") in ("1", "true", "sim", "yes"),
     whatsapp_profile_dir=Path(os.environ.get("WA_PROFILE_DIR", str(root / "wa-profile"))).resolve(),

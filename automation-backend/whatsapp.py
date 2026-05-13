@@ -288,6 +288,20 @@ class WhatsAppWeb:
     box.click()
     self._send_text_to_box(box, texto)
     box.send_keys(Keys.ENTER)
+    try:
+      end = time.time() + 3.0
+      while time.time() < end:
+        try:
+          inner = (box.get_attribute("innerText") or "").strip()
+        except Exception:
+          inner = ""
+        if not inner:
+          break
+        time.sleep(0.25)
+      else:
+        box.send_keys(Keys.ENTER)
+    except Exception:
+      pass
     self._log("Mensagem enviada.")
 
   def _score_file_input(self, el: Any) -> int:
@@ -356,22 +370,43 @@ class WhatsAppWeb:
     else:
       self._log("Pulando clique em Documento (evita janela Abrir do Windows).")
 
+    resolved = str(Path(file_path).resolve())
+    file_name = Path(resolved).name
+    is_pdf = file_name.lower().endswith(".pdf")
+
     inputs: list[Any] = []
-    inputs_deadline = time.time() + min(8.0, float(timeout_sec))
+    inputs_deadline = time.time() + min(10.0, float(timeout_sec))
+    last_best_accept = ""
     while time.time() < inputs_deadline:
       try:
         inputs = d.find_elements(By.CSS_SELECTOR, "input[type='file']")
       except Exception:
         inputs = []
-      if inputs:
-        break
-      time.sleep(0.2)
+      if not inputs:
+        time.sleep(0.2)
+        continue
+
+      try:
+        scored_now = sorted([(self._score_file_input(el), el) for el in inputs], key=lambda t: t[0], reverse=True)
+      except Exception:
+        scored_now = []
+      if not scored_now:
+        time.sleep(0.2)
+        continue
+
+      best = scored_now[0][1]
+      try:
+        last_best_accept = (best.get_attribute("accept") or "").lower().strip()
+      except Exception:
+        last_best_accept = ""
+
+      if is_pdf and ("image" in last_best_accept) and len(inputs) <= 1:
+        time.sleep(0.25)
+        continue
+      break
     if not inputs:
       raise RuntimeError("Não encontrou input de arquivo para anexar")
     scored = sorted([(self._score_file_input(el), el) for el in inputs], key=lambda t: t[0], reverse=True)
-
-    resolved = str(Path(file_path).resolve())
-    file_name = Path(resolved).name
 
     attached = False
     attach_err: Exception | None = None
