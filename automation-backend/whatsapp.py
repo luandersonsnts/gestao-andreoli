@@ -332,23 +332,27 @@ class WhatsAppWeb:
       "Não conseguiu abrir o anexo no WhatsApp Web"
     )
 
-    self._log("Selecionando tipo: Documento…")
-    try:
-      self._click_first(
-        wait_short,
-        [
-          "[data-testid='attach-document']",
-          "button[aria-label='Documento']",
-          "button[aria-label='Document']",
-          "div[aria-label='Documento']",
-          "div[aria-label='Document']",
-          "span[data-icon='attach-document']",
-        ],
-        "Não conseguiu selecionar o tipo de anexo (Documento)"
-      )
-    except Exception:
-      self._log("Não conseguiu clicar em Documento (seguindo mesmo assim).")
-      pass
+    click_document = (os.environ.get("WA_CLICK_DOCUMENT", "0") or "").strip().lower() in ("1", "true", "sim", "yes")
+    if click_document:
+      self._log("Selecionando tipo: Documento…")
+      try:
+        self._click_first(
+          wait_short,
+          [
+            "[data-testid='attach-document']",
+            "button[aria-label='Documento']",
+            "button[aria-label='Document']",
+            "div[aria-label='Documento']",
+            "div[aria-label='Document']",
+            "span[data-icon='attach-document']",
+          ],
+          "Não conseguiu selecionar o tipo de anexo (Documento)"
+        )
+      except Exception:
+        self._log("Não conseguiu clicar em Documento (seguindo mesmo assim).")
+        pass
+    else:
+      self._log("Pulando clique em Documento (evita janela Abrir do Windows).")
 
     inputs = d.find_elements(By.CSS_SELECTOR, "input[type='file']")
     if not inputs:
