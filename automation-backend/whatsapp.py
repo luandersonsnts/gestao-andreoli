@@ -394,9 +394,20 @@ class WhatsAppWeb:
         inp.send_keys(resolved)
         self._log("Arquivo selecionado no input file.")
         try:
-          WebDriverWait(d, 30).until(lambda _d: _d.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[aria-modal='true']"))
+          val = inp.get_attribute("value") or ""
+          if val:
+            self._log(f"Input file value: {val!r}")
+        except Exception:
+          pass
+        try:
+          WebDriverWait(d, 45).until(
+            lambda _d: _d.find_elements(
+              By.CSS_SELECTOR,
+              "div[role='dialog'], div[aria-modal='true'], div[data-testid*='media'], div[data-testid*='compose'], span[data-testid='send'], span[data-icon='send']",
+            )
+          )
           attached = True
-          self._log("Modal de envio do anexo apareceu.")
+          self._log("Preview/modal do anexo detectado.")
           break
         except Exception:
           pass
@@ -465,6 +476,12 @@ class WhatsAppWeb:
 
       while time.time() < close_deadline:
         try:
+          dialogs = d.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[aria-modal='true']")
+          dialog = dialogs[0] if dialogs else None
+        except Exception:
+          dialog = None
+
+        try:
           # Se o dialog sumiu, enviou com sucesso
           if not d.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[aria-modal='true']"):
             closed = True
@@ -476,7 +493,10 @@ class WhatsAppWeb:
           # Tenta achar o botão de enviar e clicar
           send_btn = None
           try:
-            btns = dialog.find_elements(By.CSS_SELECTOR, "div[role='button'], button, span")
+            if dialog is None:
+              btns = []
+            else:
+              btns = dialog.find_elements(By.CSS_SELECTOR, "div[role='button'], button, span")
             for el in btns:
               try:
                 if not el.is_displayed(): continue
@@ -515,7 +535,10 @@ class WhatsAppWeb:
           # Tenta apertar ENTER direto na caixa de texto
           try:
             if not caption_box:
-              c_els = dialog.find_elements(By.CSS_SELECTOR, "div[role='textbox'], div[contenteditable='true'][role='textbox']")
+              if dialog is None:
+                c_els = []
+              else:
+                c_els = dialog.find_elements(By.CSS_SELECTOR, "div[role='textbox'], div[contenteditable='true'][role='textbox']")
               if c_els: caption_box = c_els[0]
             
             if caption_box:
