@@ -447,84 +447,88 @@ class WhatsAppWeb:
 
     if dialog is not None:
       typed_caption = False
+      caption_box = None
       if message:
         try:
-          caption = dialog.find_elements(By.CSS_SELECTOR, "div[role='textbox'], div[contenteditable='true'][role='textbox']")
-          if caption:
-            caption[0].click()
-            self._send_text_to_box(caption[0], message)
+          caption_elements = dialog.find_elements(By.CSS_SELECTOR, "div[role='textbox'], div[contenteditable='true'][role='textbox']")
+          if caption_elements:
+            caption_box = caption_elements[0]
+            caption_box.click()
+            self._send_text_to_box(caption_box, message)
             typed_caption = True
         except Exception:
           pass
 
-      send_deadline = time.time() + min(120, float(timeout_sec))
-      send_btn = None
-      while time.time() < send_deadline:
-        try:
-          btns = dialog.find_elements(By.CSS_SELECTOR, "button, div[role='button'], span")
-        except Exception:
-          btns = []
-        candidates: list[Any] = []
-        for el in btns:
-          try:
-            if not el.is_displayed():
-              continue
-          except Exception:
-            continue
-          try:
-            tag = (el.tag_name or "").lower()
-          except Exception:
-            tag = ""
-          candidates.append(el)
-          if tag == "span":
-            try:
-              candidates.append(el.find_element(By.XPATH, "./ancestor::button[1]"))
-            except Exception:
-              pass
-
-        for el in candidates:
-          try:
-            dtid = (el.get_attribute("data-testid") or "").lower()
-            aria = (el.get_attribute("aria-label") or "").lower()
-            icon = (el.get_attribute("data-icon") or "").lower()
-            if ("send" not in dtid) and ("enviar" not in aria) and ("send" not in aria) and ("send" not in icon):
-              continue
-            target = el
-            try:
-              if (icon or "").find("send") >= 0 and (getattr(el, "tag_name", "") or "").lower() == "span":
-                target = el.find_element(By.XPATH, "./ancestor::button[1]")
-            except Exception:
-              target = el
-            if target.is_enabled():
-              send_btn = target
-              break
-          except Exception:
-            continue
-        if send_btn is not None:
-          break
-        time.sleep(0.25)
-
-      if send_btn is None:
-        raise RuntimeError("Não conseguiu habilitar o botão Enviar no preview do WhatsApp (upload pode ter travado)")
-
-      try:
-        self._click_element(send_btn)
-      except Exception:
-        try:
-          ActionChains(d).send_keys(Keys.ENTER).perform()
-        except Exception as e:
-          raise RuntimeError("Não conseguiu clicar/enviar no preview do WhatsApp Web") from e
-
       closed = False
       close_deadline = time.time() + min(60, float(timeout_sec))
+      attempts = 0
+
       while time.time() < close_deadline:
         try:
+          # Se o dialog sumiu, enviou com sucesso
           if not d.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[aria-modal='true']"):
             closed = True
             break
         except Exception:
           pass
-        time.sleep(0.25)
+
+        if attempts % 4 == 0:
+          # Tenta achar o botão de enviar e clicar
+          send_btn = None
+          try:
+            btns = dialog.find_elements(By.CSS_SELECTOR, "div[role='button'], button, span")
+            for el in btns:
+              try:
+                if not el.is_displayed(): continue
+                dtid = (el.get_attribute("data-testid") or "").lower()
+                aria = (el.get_attribute("aria-label") or "").lower()
+                icon = (el.get_attribute("data-icon") or "").lower()
+                if "send" in dtid or "enviar" in aria or "send" in aria or "send" in icon:
+                  # Se for span, tenta pegar o pai
+                  target = el
+                  if el.tag_name.lower() == "span":
+                    try:
+                      parent = el.find_element(By.XPATH, "./ancestor::div[@role='button'] | ./ancestor::button")
+                      if parent.is_displayed(): target = parent
+                    except Exception:
+                      pass
+                  if target.is_enabled():
+                    send_btn = target
+                    break
+              except Exception:
+                continue
+          except Exception:
+            pass
+
+          if send_btn:
+            try:
+              self._click_element(send_btn)
+            except Exception:
+              pass
+          else:
+            try:
+              ActionChains(d).send_keys(Keys.ENTER).perform()
+            except Exception:
+              pass
+
+        elif attempts % 4 == 2:
+          # Tenta apertar ENTER direto na caixa de texto
+          try:
+            if not caption_box:
+              c_els = dialog.find_elements(By.CSS_SELECTOR, "div[role='textbox'], div[contenteditable='true'][role='textbox']")
+              if c_els: caption_box = c_els[0]
+            
+            if caption_box:
+              caption_box.click()
+              caption_box.send_keys(Keys.ENTER)
+            else:
+              ActionChains(d).send_keys(Keys.ENTER).perform()
+          except Exception:
+            pass
+
+        time.sleep(0.5)
+        attempts += 1
+
       if not closed:
         raise RuntimeError("Preview do WhatsApp não fechou após enviar (trava no PREVIEW)")
 
