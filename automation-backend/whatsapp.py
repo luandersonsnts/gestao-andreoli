@@ -300,6 +300,8 @@ class WhatsAppWeb:
       score += 3
     if "*/*" in accept or accept.strip() == "*":
       score += 2
+    if not accept.strip():
+      score += 1
     if "image" in accept:
       score -= 2
     try:
@@ -354,7 +356,16 @@ class WhatsAppWeb:
     else:
       self._log("Pulando clique em Documento (evita janela Abrir do Windows).")
 
-    inputs = d.find_elements(By.CSS_SELECTOR, "input[type='file']")
+    inputs: list[Any] = []
+    inputs_deadline = time.time() + min(8.0, float(timeout_sec))
+    while time.time() < inputs_deadline:
+      try:
+        inputs = d.find_elements(By.CSS_SELECTOR, "input[type='file']")
+      except Exception:
+        inputs = []
+      if inputs:
+        break
+      time.sleep(0.2)
     if not inputs:
       raise RuntimeError("Não encontrou input de arquivo para anexar")
     scored = sorted([(self._score_file_input(el), el) for el in inputs], key=lambda t: t[0], reverse=True)
@@ -453,6 +464,7 @@ class WhatsAppWeb:
       except Exception as e:
         self._log(f"Falha ao enviar mensagem antes do anexo (seguindo): {e}")
     self._anexar_arquivo(resolved, timeout_sec=timeout_sec)
+    self._log("Tentando enviar o anexo (preview)…")
 
     dialog = None
     try:
@@ -566,6 +578,65 @@ class WhatsAppWeb:
           pass
       self._log("Boleto enviado.")
       return
+
+    send_try_deadline = time.time() + min(90.0, float(timeout_sec))
+    last_progress = 0.0
+    while time.time() < send_try_deadline:
+      try:
+        if d.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[aria-modal='true']"):
+          break
+      except Exception:
+        pass
+
+      if time.time() - last_progress > 5.0:
+        last_progress = time.time()
+        try:
+          has_progress = bool(d.find_elements(By.CSS_SELECTOR, "[role='progressbar']"))
+        except Exception:
+          has_progress = False
+        if has_progress:
+          self._log("Upload ainda em andamento (progressbar detectado).")
+
+      candidates: list[Any] = []
+      try:
+        candidates.extend(d.find_elements(By.CSS_SELECTOR, "[data-testid='send'], span[data-testid='send'], span[data-icon='send'], button[aria-label='Enviar'], button[aria-label='Send'], div[aria-label='Enviar'], div[aria-label='Send']"))
+      except Exception:
+        candidates = []
+      send_btn = None
+      for el in candidates:
+        try:
+          if not el.is_displayed():
+            continue
+        except Exception:
+          continue
+        try:
+          target = el
+          if (getattr(el, "tag_name", "") or "").lower() == "span":
+            try:
+              target = el.find_element(By.XPATH, "./ancestor::button[1] | ./ancestor::div[@role='button'][1]")
+            except Exception:
+              target = el
+          if target.is_enabled():
+            send_btn = target
+            break
+        except Exception:
+          continue
+
+      if send_btn is not None:
+        try:
+          self._click_element(send_btn)
+          time.sleep(0.5)
+        except Exception:
+          pass
+
+      try:
+        if not d.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[aria-modal='true']"):
+          self._log("Boleto enviado.")
+          return
+      except Exception:
+        pass
+
+      time.sleep(0.25)
 
     try:
       wait.until(
