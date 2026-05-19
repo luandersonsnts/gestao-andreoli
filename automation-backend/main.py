@@ -696,6 +696,13 @@ def send_pdf_with_watchdog(wa: WhatsAppWeb, contact_name: str | None, phone: str
       log_debug("Envio finalizado (sem exceção).")
     except Exception as e:
       log_debug(f"Erro no envio (thread): {type(e).__name__}: {e}")
+      try:
+          d = wa._get_driver()
+          screenshot_path = settings.erro_dir / f"erro_whatsapp_{int(time.time())}.png"
+          d.save_screenshot(str(screenshot_path))
+          log_debug(f"Screenshot salva em: {screenshot_path}")
+      except Exception as ex:
+          log_debug(f"Falha ao salvar screenshot: {ex}")
       err_box["err"] = e
 
   t = threading.Thread(target=_run, daemon=True)

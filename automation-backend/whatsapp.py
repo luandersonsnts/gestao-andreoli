@@ -348,34 +348,61 @@ class WhatsAppWeb:
       "Não conseguiu abrir o anexo no WhatsApp Web"
     )
 
-    click_document = (os.environ.get("WA_CLICK_DOCUMENT", "0") or "").strip().lower() in ("1", "true", "sim", "yes")
-    if click_document:
-      self._log("Selecionando tipo: Documento…")
-      try:
-        self._click_first(
-          wait_short,
-          [
-            "[data-testid='attach-document']",
-            "button[aria-label='Documento']",
-            "button[aria-label='Document']",
-            "div[aria-label='Documento']",
-            "div[aria-label='Document']",
-            "span[data-icon='attach-document']",
-          ],
-          "Não conseguiu selecionar o tipo de anexo (Documento)"
-        )
-      except Exception:
-        self._log("Não conseguiu clicar em Documento (seguindo mesmo assim).")
-        pass
+    # Injetar script para capturar o input e bloquear o dialog nativo (janela Abrir)
+    try:
+      d.execute_script("""
+          window.__lastFileInput = null;
+          if (!window.__fileInterceptorAdded) {
+              window.__originalInputClick = HTMLInputElement.prototype.click;
+              HTMLInputElement.prototype.click = function() {
+                  window.__lastFileInput = this;
+              };
+              window.__fileInterceptorAdded = true;
+          }
+      """)
+    except Exception:
+      pass
+
+    self._log("Clicando em Documento com interceptador JS (gera input sem abrir janela nativa)…")
+    try:
+      self._click_first(
+        wait_short,
+        [
+          "[data-testid='attach-document']",
+          "button[aria-label='Documento']",
+          "button[aria-label='Document']",
+          "div[aria-label='Documento']",
+          "div[aria-label='Document']",
+          "span[data-icon='attach-document']",
+        ],
+        "Não conseguiu selecionar o tipo de anexo (Documento)"
+      )
+      time.sleep(1.0)
+    except Exception:
+      self._log("Não conseguiu clicar em Documento (seguindo mesmo assim).")
+      pass
+
+    best_input = None
+    try:
+      best_input = d.execute_script("return window.__lastFileInput;")
+    except Exception:
+      pass
+
+    if best_input:
+      self._log("Input file correto capturado via interceptador JS.")
     else:
-      self._log("Pulando clique em Documento (evita janela Abrir do Windows).")
+      self._log("Interceptador não pegou o input. Buscando no DOM…")
 
     resolved = str(Path(file_path).resolve())
     file_name = Path(resolved).name
     is_pdf = file_name.lower().endswith(".pdf")
 
     inputs: list[Any] = []
-    inputs_deadline = time.time() + min(10.0, float(timeout_sec))
+    if best_input:
+      inputs = [best_input]
+      inputs_deadline = 0
+    else:
+      inputs_deadline = time.time() + min(10.0, float(timeout_sec))
     last_best_accept = ""
     while time.time() < inputs_deadline:
       try:
