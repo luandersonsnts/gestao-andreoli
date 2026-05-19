@@ -330,33 +330,66 @@ class WhatsAppWeb:
     wait_short = WebDriverWait(d, min(20, timeout_sec))
 
     self._log("Abrindo menu de anexo…")
-    self._click_first(
-      wait_short,
-      [
+    
+    # IMPORTANTE: No WhatsApp Web atual, o botão de anexo pode estar coberto ou interceptado
+    # por tooltips. Tentar JS puro primeiro para o botão principal de anexo (clipe).
+    clip_selectors = [
         "span[data-testid='clip']",
         "button[aria-label='Anexar']",
         "button[aria-label='Attach']",
         "div[aria-label='Anexar']",
-        "div[aria-label='Attach']",
-        "button[title='Anexar']",
-        "button[title='Attach']",
-        "div[title='Anexar']",
-        "div[title='Attach']",
         "span[data-icon='clip']",
-        "span[data-icon='plus']",
-      ],
-      "Não conseguiu abrir o anexo no WhatsApp Web"
-    )
+        "span[data-icon='plus']"
+    ]
+    
+    clip_btn = None
+    for sel in clip_selectors:
+        try:
+            elements = d.find_elements(By.CSS_SELECTOR, sel)
+            for el in elements:
+                if el.is_displayed():
+                    clip_btn = el
+                    break
+            if clip_btn: break
+        except:
+            pass
+            
+    if clip_btn:
+        try:
+            d.execute_script("arguments[0].click();", clip_btn)
+            time.sleep(1.0)
+        except:
+            self._click_first(wait_short, clip_selectors, "Não conseguiu abrir o anexo")
+    else:
+        self._click_first(wait_short, clip_selectors, "Não conseguiu abrir o anexo")
 
-    # Injetar script para capturar o input e bloquear o dialog nativo (janela Abrir)
+
+    # Injetar script para interceptar TODA e qualquer criação de input
     try:
       d.execute_script("""
           window.__lastFileInput = null;
           if (!window.__fileInterceptorAdded) {
+              // Intercepta click
               window.__originalInputClick = HTMLInputElement.prototype.click;
               HTMLInputElement.prototype.click = function() {
                   window.__lastFileInput = this;
               };
+              
+              // Observa o DOM para inputs adicionados dinamicamente
+              window.__fileObserver = new MutationObserver((mutations) => {
+                  mutations.forEach((m) => {
+                      m.addedNodes.forEach((node) => {
+                          if (node.nodeName === 'INPUT' && node.type === 'file' && (node.accept === '*' || node.accept === '*/*')) {
+                              window.__lastFileInput = node;
+                          } else if (node.querySelectorAll) {
+                              const inputs = node.querySelectorAll('input[type="file"][accept*="*"]');
+                              if (inputs.length > 0) window.__lastFileInput = inputs[0];
+                          }
+                      });
+                  });
+              });
+              window.__fileObserver.observe(document.body, { childList: true, subtree: true });
+              
               window.__fileInterceptorAdded = true;
           }
       """)
@@ -364,23 +397,42 @@ class WhatsAppWeb:
       pass
 
     self._log("Clicando em Documento com interceptador JS (gera input sem abrir janela nativa)…")
-    try:
-      self._click_first(
-        wait_short,
-        [
-          "[data-testid='attach-document']",
-          "button[aria-label='Documento']",
-          "button[aria-label='Document']",
-          "div[aria-label='Documento']",
-          "div[aria-label='Document']",
-          "span[data-icon='attach-document']",
-        ],
-        "Não conseguiu selecionar o tipo de anexo (Documento)"
-      )
-      time.sleep(1.0)
-    except Exception:
-      self._log("Não conseguiu clicar em Documento (seguindo mesmo assim).")
-      pass
+    
+    # Seletores mais agressivos para "Documento"
+    doc_selectors = [
+      "li[data-testid='mi-attach-document']",
+      "span[data-testid='attach-document']",
+      "button[aria-label='Documento']",
+      "div[aria-label='Documento']",
+      "span[data-icon='attach-document']"
+    ]
+    
+    doc_btn = None
+    for sel in doc_selectors:
+        try:
+            elements = d.find_elements(By.CSS_SELECTOR, sel)
+            for el in elements:
+                if el.is_displayed():
+                    doc_btn = el
+                    break
+            if doc_btn: break
+        except:
+            pass
+
+    if doc_btn:
+        try:
+            # Força o clique via JS para não esbarrar na tela
+            d.execute_script("arguments[0].click();", doc_btn)
+            time.sleep(1.0)
+        except:
+            pass
+    else:
+        try:
+          self._click_first(wait_short, doc_selectors, "Não conseguiu selecionar o tipo de anexo (Documento)")
+          time.sleep(1.0)
+        except Exception:
+          self._log("Não conseguiu clicar em Documento (seguindo mesmo assim).")
+          pass
 
     best_input = None
     try:
