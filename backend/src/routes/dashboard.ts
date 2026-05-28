@@ -6,12 +6,18 @@ import { requireAuth, requireRole } from "../http/authMiddleware.js";
 export const dashboardRouter = Router();
 
 dashboardRouter.get("/summary", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LEITURA"]), async (_req, res) => {
-  const totalClientesPromise = prisma.cliente.count();
+  const totalClientesPromise = prisma.cliente.count({
+    where: { statusCliente: "ativo" }
+  });
 
   const contempladosPromise = prisma.cota
     .groupBy({
       by: ["clienteId"],
-      where: { contemplado: true }
+      where: { 
+        contemplado: true,
+        status: "ativo",
+        cliente: { statusCliente: "ativo" }
+      }
     })
     .then((rows) => rows.length);
 
@@ -19,16 +25,18 @@ dashboardRouter.get("/summary", requireAuth, requireRole(["ADMIN", "COMERCIAL", 
     Prisma.sql`
       SELECT COUNT(*)::bigint AS count
       FROM (
-        SELECT "clienteId"
-        FROM "Cota"
-        GROUP BY "clienteId"
+        SELECT c."clienteId"
+        FROM "Cota" c
+        JOIN "Cliente" cl ON c."clienteId" = cl.id
+        WHERE c.status = 'ativo' AND cl."statusCliente" = 'ativo'
+        GROUP BY c."clienteId"
         HAVING COUNT(*) > 2
       ) t
     `
   );
 
-  const tirouFotoPromise = prisma.cliente.count({ where: { tirouFoto: true } });
-  const naoTirouFotoPromise = prisma.cliente.count({ where: { tirouFoto: false } });
+  const tirouFotoPromise = prisma.cliente.count({ where: { tirouFoto: true, statusCliente: "ativo" } });
+  const naoTirouFotoPromise = prisma.cliente.count({ where: { tirouFoto: false, statusCliente: "ativo" } });
 
   const [totalClientes, totalContemplados, vipRows, tirouFoto, naoTirouFoto] = await Promise.all([
     totalClientesPromise,
@@ -38,15 +46,27 @@ dashboardRouter.get("/summary", requireAuth, requireRole(["ADMIN", "COMERCIAL", 
     naoTirouFotoPromise
   ]);
 
+  const totalDesistentesPromise = prisma.cliente.count({
+    where: { statusCliente: "desistente" }
+  });
+  const totalDesistentes = await totalDesistentesPromise;
+
+  const totalExcluidosPromise = prisma.cliente.count({
+    where: { statusCliente: "excluido" }
+  });
+  const totalExcluidos = await totalExcluidosPromise;
+
   const totalVip = Number(vipRows?.[0]?.count ?? 0n);
   const totalNaoContemplados = Math.max(0, totalClientes - totalContemplados);
   const taxaConversao = totalClientes === 0 ? 0 : totalContemplados / totalClientes;
 
   const entradasMensaisRows = await prisma.$queryRaw<{ mes: string; total: bigint }[]>(
     Prisma.sql`
-      SELECT to_char(date_trunc('month', "dataEntrada"), 'YYYY-MM') AS mes,
+      SELECT to_char(date_trunc('month', c."dataEntrada"), 'YYYY-MM') AS mes,
              COUNT(*)::bigint AS total
-      FROM "Cota"
+      FROM "Cota" c
+      JOIN "Cliente" cl ON c."clienteId" = cl.id
+      WHERE c.status = 'ativo' AND cl."statusCliente" = 'ativo'
       GROUP BY 1
       ORDER BY 1
     `
@@ -54,9 +74,11 @@ dashboardRouter.get("/summary", requireAuth, requireRole(["ADMIN", "COMERCIAL", 
 
   const administradorasRows = await prisma.$queryRaw<{ administradora: string; total: bigint }[]>(
     Prisma.sql`
-      SELECT "administradora" AS administradora,
+      SELECT c."administradora" AS administradora,
              COUNT(*)::bigint AS total
-      FROM "Cota"
+      FROM "Cota" c
+      JOIN "Cliente" cl ON c."clienteId" = cl.id
+      WHERE c.status = 'ativo' AND cl."statusCliente" = 'ativo'
       GROUP BY 1
       ORDER BY 2 DESC, 1 ASC
     `
@@ -65,8 +87,10 @@ dashboardRouter.get("/summary", requireAuth, requireRole(["ADMIN", "COMERCIAL", 
   const cotasPorClienteRows = await prisma.$queryRaw<{ total: bigint }[]>(
     Prisma.sql`
       SELECT COUNT(*)::bigint AS total
-      FROM "Cota"
-      GROUP BY "clienteId"
+      FROM "Cota" c
+      JOIN "Cliente" cl ON c."clienteId" = cl.id
+      WHERE c.status = 'ativo' AND cl."statusCliente" = 'ativo'
+      GROUP BY c."clienteId"
     `
   );
   const buckets = { "1": 0, "2": 0, "3+": 0 };
@@ -82,6 +106,8 @@ dashboardRouter.get("/summary", requireAuth, requireRole(["ADMIN", "COMERCIAL", 
       totalClientes,
       totalContemplados,
       totalNaoContemplados,
+      totalDesistentes,
+      totalExcluidos,
       totalVip,
       tirouFoto,
       naoTirouFoto,

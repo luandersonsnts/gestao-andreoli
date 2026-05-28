@@ -15,6 +15,7 @@ export type CotaInput = {
   grupo: string;
   cota: string;
   dataEntrada: string;
+  status?: "ativo" | "inativo";
   administradora: string;
   assembleiaDia: number | null;
   vencimentoDiaMensal: number | null;
@@ -34,6 +35,9 @@ export type Cliente = {
   nome: string;
   telefone: string | null;
   active: boolean;
+  statusCliente: "ativo" | "desistente" | "excluido";
+  motivoDesistencia: string | null;
+  dataDesistencia: string | null;
   pontuacaoRanking: number;
   categoria: "VIP" | "NORMAL" | "RISCO";
   dataNascimento: string | null;
@@ -49,6 +53,7 @@ export type Cliente = {
       grupo: string;
       cota: string;
       dataEntrada: string;
+      status: "ativo" | "inativo";
       administradora: string;
       assembleiaDia: number | null;
       vencimentoDiaMensal: number | null;
@@ -72,6 +77,9 @@ export type ClienteListItem = {
   nome: string;
   telefone: string | null;
   active: boolean;
+  statusCliente: "ativo" | "desistente" | "excluido";
+  motivoDesistencia: string | null;
+  dataDesistencia: string | null;
   pontuacaoRanking: number;
   categoria: "VIP" | "NORMAL" | "RISCO";
   dataNascimento: string | null;
@@ -92,6 +100,8 @@ export type DashboardSummary = {
     totalClientes: number;
     totalContemplados: number;
     totalNaoContemplados: number;
+    totalDesistentes: number;
+    totalExcluidos: number;
     totalVip: number;
     tirouFoto: number;
     naoTirouFoto: number;

@@ -14,26 +14,35 @@ notificationsRouter.get("/", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LE
       JOIN (
         SELECT "clienteId"
         FROM "Cota"
+        WHERE status = 'ativo'
         GROUP BY "clienteId"
         HAVING COUNT(*) > 2
       ) t ON t."clienteId" = c.id
+      WHERE c."statusCliente" = 'ativo'
       ORDER BY c.nome ASC
     `
   );
 
   const contempladoSemFoto = await prisma.cliente.findMany({
-    where: { tirouFoto: false, cotas: { some: { contemplado: true } } },
+    where: { 
+      tirouFoto: false, 
+      statusCliente: "ativo",
+      cotas: { some: { contemplado: true, status: "ativo" } } 
+    },
     select: { id: true, nome: true },
     orderBy: { nome: "asc" }
   });
 
   const clientesComCotas = await prisma.cliente.findMany({
+    where: { statusCliente: "ativo" },
     select: {
       id: true,
       nome: true,
       cotas: {
+        where: { status: "ativo" },
         select: {
           grupo: true,
+          status: true,
           administradora: true,
           dataEntrada: true,
           assembleiaDia: true,

@@ -282,7 +282,11 @@ export function ClientsPage() {
                       </TableCell>
                       <TableCell>
                         <Stack direction="row" gap={1} flexWrap="wrap">
-                          {c.possuiParcelasEmAberto ? <Chip size="small" color="error" label="Parcelas" /> : null}
+                          {c.statusCliente === "desistente" || c.statusCliente === "excluido" ? (
+                            <Chip size="small" color="error" label={c.statusCliente === "excluido" ? "Excluído" : "Cota Inativa"} />
+                          ) : (
+                            c.possuiParcelasEmAberto ? <Chip size="small" color="error" label="Parcelas" /> : null
+                          )}
                           {c.possuiContemplacao && !c.tirouFoto ? <Chip size="small" color="error" label="Foto pendente" /> : null}
                         </Stack>
                       </TableCell>

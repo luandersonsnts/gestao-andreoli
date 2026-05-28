@@ -46,6 +46,7 @@ async function decorateClients(clientes: Array<{ id: string; _count: { cotas: nu
       grupo: true,
       administradora: true,
       dataEntrada: true,
+      status: true,
       assembleiaDia: true,
       vencimentoDiaMensal: true,
       antecedenciaPrimeiraParcelaDias: true,
@@ -69,47 +70,6 @@ async function decorateClients(clientes: Array<{ id: string; _count: { cotas: nu
   }
 
   return { contemplacaoSet, contemplacaoCountByClienteId, atrasoSet };
-}
-
-async function getClienteExtrasById(ids: string[]) {
-  const map = new Map<
-    string,
-    { id: string; telefone: string | null; active: boolean | null; pontuacaoRanking: number | null; categoria: string | null }
-  >();
-  if (ids.length === 0) return map;
-  try {
-    const rows = await prisma.$queryRaw<
-      { id: string; telefone: string | null; active: boolean | null; pontuacaoRanking: number | null; categoria: string | null }[]
-    >(
-      Prisma.sql`
-        SELECT id, telefone, active, "pontuacaoRanking" as "pontuacaoRanking", categoria
-        FROM "Cliente"
-        WHERE id IN (${Prisma.join(ids)})
-      `
-    );
-    for (const r of rows) map.set(r.id, r);
-  } catch {
-    return map;
-  }
-  return map;
-}
-
-async function tryUpdateClienteExtras(id: string, input: any) {
-  try {
-    await prisma.$executeRaw(
-      Prisma.sql`
-        UPDATE "Cliente"
-        SET
-          telefone = ${input.telefone ?? null},
-          active = ${input.active ?? true},
-          "pontuacaoRanking" = ${input.pontuacaoRanking ?? 0},
-          categoria = ${input.categoria ?? "NORMAL"}
-        WHERE id = ${id}
-      `
-    );
-  } catch {
-    return;
-  }
 }
 
 clientsRouter.get("/", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LEITURA"]), async (req, res, next) => {
@@ -137,6 +97,13 @@ clientsRouter.get("/", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LEITURA"
       select: {
         id: true,
         nome: true,
+        telefone: true,
+        active: true,
+        statusCliente: true,
+        motivoDesistencia: true,
+        dataDesistencia: true,
+        pontuacaoRanking: true,
+        categoria: true,
         dataNascimento: true,
         fotoPath: true,
         tirouFoto: true,
@@ -154,13 +121,15 @@ clientsRouter.get("/", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LEITURA"
         .filter((c) => (needsVipFilter ? c._count.cotas > 2 : true))
         .filter((c) => (needsAtrasoFilter ? atrasoSet.has(c.id) : true));
       const paged = filtered.slice(query.skip, query.skip + query.take);
-      const extrasById = await getClienteExtrasById(paged.map((c) => c.id));
       const items = paged.map((c) => ({
         ...c,
-        telefone: extrasById.get(c.id)?.telefone ?? null,
-        active: extrasById.get(c.id)?.active ?? true,
-        pontuacaoRanking: extrasById.get(c.id)?.pontuacaoRanking ?? 0,
-        categoria: (extrasById.get(c.id)?.categoria as any) ?? "NORMAL",
+        telefone: c.telefone,
+        active: c.active,
+        statusCliente: c.statusCliente,
+        motivoDesistencia: c.motivoDesistencia,
+        dataDesistencia: c.dataDesistencia,
+        pontuacaoRanking: c.pontuacaoRanking,
+        categoria: c.categoria,
         isVip: c._count.cotas > 2,
         contempladasCount: contemplacaoCountByClienteId.get(c.id) ?? 0,
         possuiContemplacao: contemplacaoSet.has(c.id),
@@ -175,13 +144,15 @@ clientsRouter.get("/", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LEITURA"
     ]);
 
     const { contemplacaoSet, contemplacaoCountByClienteId, atrasoSet } = await decorateClients(clientes);
-    const extrasById = await getClienteExtrasById(clientes.map((c) => c.id));
     const items = clientes.map((c) => ({
       ...c,
-      telefone: extrasById.get(c.id)?.telefone ?? null,
-      active: extrasById.get(c.id)?.active ?? true,
-      pontuacaoRanking: extrasById.get(c.id)?.pontuacaoRanking ?? 0,
-      categoria: (extrasById.get(c.id)?.categoria as any) ?? "NORMAL",
+      telefone: c.telefone,
+      active: c.active,
+      statusCliente: c.statusCliente,
+      motivoDesistencia: c.motivoDesistencia,
+      dataDesistencia: c.dataDesistencia,
+      pontuacaoRanking: c.pontuacaoRanking,
+      categoria: c.categoria,
       isVip: c._count.cotas > 2,
       contempladasCount: contemplacaoCountByClienteId.get(c.id) ?? 0,
       possuiContemplacao: contemplacaoSet.has(c.id),
@@ -201,16 +172,9 @@ clientsRouter.get("/:id", requireAuth, requireRole(["ADMIN", "COMERCIAL", "LEITU
     include: { cotas: { orderBy: { dataEntrada: "desc" } } }
   });
   if (!cliente) return res.status(404).json({ message: "Cliente não encontrado" });
-  const [extrasById, cotaCount] = await Promise.all([getClienteExtrasById([id]), prisma.cota.count({ where: { clienteId: id } })]);
-  const extras = extrasById.get(id);
+  const cotaCount = await prisma.cota.count({ where: { clienteId: id } });
   return res.json({
-    cliente: {
-      ...(cliente as any),
-      telefone: extras?.telefone ?? null,
-      active: extras?.active ?? true,
-      pontuacaoRanking: extras?.pontuacaoRanking ?? 0,
-      categoria: (extras?.categoria as any) ?? "NORMAL"
-    },
+    cliente,
     isVip: cotaCount > 2
   });
 });
@@ -221,6 +185,13 @@ clientsRouter.post("/", requireAuth, requireRole(["ADMIN", "COMERCIAL"]), async 
     const cliente = await prisma.cliente.create({
       data: {
         nome: input.nome,
+        telefone: input.telefone ?? null,
+        active: input.active ?? true,
+        statusCliente: input.statusCliente ?? "ativo",
+        motivoDesistencia: input.motivoDesistencia ?? null,
+        dataDesistencia: input.dataDesistencia ?? null,
+        pontuacaoRanking: input.pontuacaoRanking ?? 0,
+        categoria: (input.categoria as any) ?? "NORMAL",
         dataNascimento: input.dataNascimento ?? null,
         tirouFoto: input.tirouFoto,
         observacoes: input.observacoes ?? null,
@@ -229,6 +200,7 @@ clientsRouter.post("/", requireAuth, requireRole(["ADMIN", "COMERCIAL"]), async 
             grupo: c.grupo,
             cota: c.cota,
             dataEntrada: c.dataEntrada,
+            status: c.status ?? "ativo",
             administradora: c.administradora,
             assembleiaDia: c.assembleiaDia ?? null,
             vencimentoDiaMensal: c.vencimentoDiaMensal ?? null,
@@ -246,21 +218,16 @@ clientsRouter.post("/", requireAuth, requireRole(["ADMIN", "COMERCIAL"]), async 
       },
       include: { cotas: true }
     });
-    await tryUpdateClienteExtras(cliente.id, input);
+    // We don't need tryUpdateClienteExtras anymore
     const cotaCount = Array.isArray((cliente as any).cotas) ? (cliente as any).cotas.length : await prisma.cota.count({ where: { clienteId: cliente.id } });
-    const extrasById = await getClienteExtrasById([cliente.id]);
-    const extras = extrasById.get(cliente.id);
     return res.status(201).json({
-      cliente: {
-        ...(cliente as any),
-        telefone: extras?.telefone ?? input.telefone ?? null,
-        active: extras?.active ?? input.active ?? true,
-        pontuacaoRanking: extras?.pontuacaoRanking ?? input.pontuacaoRanking ?? 0,
-        categoria: (extras?.categoria as any) ?? input.categoria ?? "NORMAL"
-      },
+      cliente,
       isVip: cotaCount > 2
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.code === "P2002") {
+      return res.status(400).json({ message: "Já existe um cadastro para essa cota." });
+    }
     return next(err);
   }
 });
@@ -277,6 +244,13 @@ clientsRouter.put("/:id", requireAuth, requireRole(["ADMIN", "COMERCIAL"]), asyn
         where: { id },
         data: {
           nome: input.nome,
+          telefone: input.telefone ?? null,
+          active: input.active ?? true,
+          statusCliente: input.statusCliente ?? "ativo",
+          motivoDesistencia: input.motivoDesistencia ?? null,
+          dataDesistencia: input.dataDesistencia ?? null,
+          pontuacaoRanking: input.pontuacaoRanking ?? 0,
+          categoria: (input.categoria as any) ?? "NORMAL",
           dataNascimento: input.dataNascimento ?? null,
           tirouFoto: input.tirouFoto,
           observacoes: input.observacoes ?? null,
@@ -285,6 +259,7 @@ clientsRouter.put("/:id", requireAuth, requireRole(["ADMIN", "COMERCIAL"]), asyn
               grupo: c.grupo,
               cota: c.cota,
               dataEntrada: c.dataEntrada,
+              status: c.status ?? "ativo",
               administradora: c.administradora,
               assembleiaDia: c.assembleiaDia ?? null,
               vencimentoDiaMensal: c.vencimentoDiaMensal ?? null,
@@ -305,20 +280,16 @@ clientsRouter.put("/:id", requireAuth, requireRole(["ADMIN", "COMERCIAL"]), asyn
     });
 
     if (!cliente) return res.status(404).json({ message: "Cliente não encontrado" });
-    await tryUpdateClienteExtras(id, input);
-    const [extrasById, cotaCount] = await Promise.all([getClienteExtrasById([id]), prisma.cota.count({ where: { clienteId: id } })]);
-    const extras = extrasById.get(id);
+    // We don't need tryUpdateClienteExtras anymore
+    const cotaCount = await prisma.cota.count({ where: { clienteId: id } });
     return res.json({
-      cliente: {
-        ...(cliente as any),
-        telefone: extras?.telefone ?? input.telefone ?? null,
-        active: extras?.active ?? input.active ?? true,
-        pontuacaoRanking: extras?.pontuacaoRanking ?? input.pontuacaoRanking ?? 0,
-        categoria: (extras?.categoria as any) ?? input.categoria ?? "NORMAL"
-      },
+      cliente,
       isVip: cotaCount > 2
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.code === "P2002") {
+      return res.status(400).json({ message: "Já existe um cadastro para essa cota." });
+    }
     return next(err);
   }
 });

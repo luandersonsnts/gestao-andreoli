@@ -1,4 +1,4 @@
-import { Card, CardContent, Grid, Typography, useTheme } from "@mui/material";
+import { Card, CardContent, Grid, Typography, useTheme, Skeleton } from "@mui/material";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Area,
@@ -17,19 +17,8 @@ import {
 } from "recharts";
 import { getDashboardSummary } from "../api/api";
 import type { DashboardSummary } from "../api/types";
-
-function StatCard({ title, value }: { title: string; value: string }) {
-  return (
-    <Card>
-      <CardContent>
-        <Typography variant="body2" color="text.secondary">
-          {title}
-        </Typography>
-        <Typography variant="h5">{value}</Typography>
-      </CardContent>
-    </Card>
-  );
-}
+import { PageHeader } from "../components/PageHeader";
+import { StatCard } from "../components/StatCard";
 
 function normalizeName(name: string) {
   return name
@@ -103,33 +92,45 @@ export function DashboardPage() {
     other: colors.primary
   };
 
+  const isLoading = !data;
+
   return (
-    <Grid container spacing={2}>
+    <Grid container spacing={3}>
       <Grid item xs={12}>
-        <Typography variant="h5">Dashboard</Typography>
+        <PageHeader title="Dashboard" />
       </Grid>
 
-      <Grid item xs={12} sm={6} md={3}>
-        <StatCard title="Total de clientes" value={String(data?.totals.totalClientes ?? "-")} />
+      <Grid item xs={12} sm={6} md={2}>
+        <StatCard title="Total de clientes (Ativos)" value={data?.totals.totalClientes ?? "-"} loading={isLoading} />
       </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <StatCard title="Clientes contemplados" value={String(data?.totals.totalContemplados ?? "-")} />
+      <Grid item xs={12} sm={6} md={2}>
+        <StatCard title="Contemplados" value={data?.totals.totalContemplados ?? "-"} loading={isLoading} />
       </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <StatCard title="Clientes VIP (>2 cotas)" value={String(data?.totals.totalVip ?? "-")} />
+      <Grid item xs={12} sm={6} md={2}>
+        <StatCard title="Desistentes" value={data?.totals.totalDesistentes ?? "-"} loading={isLoading} />
       </Grid>
-      <Grid item xs={12} sm={6} md={3}>
+      <Grid item xs={12} sm={6} md={2}>
+        <StatCard title="Excluídos" value={data?.totals.totalExcluidos ?? "-"} loading={isLoading} />
+      </Grid>
+      <Grid item xs={12} sm={6} md={2}>
+        <StatCard title="VIP (>2 cotas)" value={data?.totals.totalVip ?? "-"} loading={isLoading} />
+      </Grid>
+      <Grid item xs={12} sm={6} md={2}>
         <StatCard
-          title="Taxa de conversão"
+          title="Conversão (Contemplados/Ativos)"
           value={data ? `${Math.round(data.totals.taxaConversao * 100)}%` : "-"}
+          loading={isLoading}
         />
       </Grid>
 
       <Grid item xs={12} md={6}>
         <Card>
           <CardContent sx={{ height: 320 }}>
-            <Typography variant="subtitle1">Contemplados vs não contemplados</Typography>
-            <ResponsiveContainer width="100%" height="100%">
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Contemplados vs não contemplados</Typography>
+            {isLoading ? (
+              <Skeleton variant="circular" width={200} height={200} sx={{ mx: "auto", mt: 2 }} />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Tooltip />
                 <Pie
@@ -146,6 +147,7 @@ export function DashboardPage() {
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </Grid>
@@ -153,8 +155,11 @@ export function DashboardPage() {
       <Grid item xs={12} md={6}>
         <Card>
           <CardContent sx={{ height: 320 }}>
-            <Typography variant="subtitle1">Evolução mensal de entradas</Typography>
-            <ResponsiveContainer width="100%" height="100%">
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Evolução mensal de entradas</Typography>
+            {isLoading ? (
+              <Skeleton variant="rectangular" width="100%" height={240} sx={{ borderRadius: 2 }} />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={monthlyData} margin={{ top: 16, right: 12, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="entradasFill" x1="0" y1="0" x2="0" y2="1">
@@ -177,6 +182,7 @@ export function DashboardPage() {
                 />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </Grid>
@@ -184,7 +190,10 @@ export function DashboardPage() {
       <Grid item xs={12} md={6}>
         <Card>
           <CardContent sx={{ height: 320 }}>
-            <Typography variant="subtitle1">Administradoras mais utilizadas</Typography>
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Administradoras mais utilizadas</Typography>
+            {isLoading ? (
+              <Skeleton variant="rectangular" width="100%" height={240} sx={{ borderRadius: 2 }} />
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={adminsData} layout="vertical" margin={{ top: 16, right: 12, bottom: 0, left: 24 }}>
                 <CartesianGrid stroke={colors.grid} strokeDasharray="4 4" />
@@ -201,7 +210,8 @@ export function DashboardPage() {
                   ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </Grid>
@@ -209,7 +219,10 @@ export function DashboardPage() {
       <Grid item xs={12} md={6}>
         <Card>
           <CardContent sx={{ height: 320 }}>
-            <Typography variant="subtitle1">Clientes por quantidade de cotas</Typography>
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Clientes por quantidade de cotas</Typography>
+            {isLoading ? (
+              <Skeleton variant="rectangular" width="100%" height={240} sx={{ borderRadius: 2 }} />
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={cotasData} margin={{ top: 16, right: 12, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke={colors.grid} strokeDasharray="4 4" />
@@ -219,7 +232,8 @@ export function DashboardPage() {
                 <Legend />
                 <Bar dataKey="total" fill={colors.warning} name="Clientes" radius={[8, 8, 8, 8]} />
               </BarChart>
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </Grid>

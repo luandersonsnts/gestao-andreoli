@@ -767,13 +767,13 @@ def worker_loop():
             msg = str(e) or repr(e)
             _worker_last_error = msg
             log_debug(f"Teste fallback falhou: {type(e).__name__}: {msg}")
-          time.sleep(1.0)
+          _stop_event.wait(1.0)
           continue
 
         if time.time() - last_idle_log > 10.0:
           last_idle_log = time.time()
           log_debug("Sem boletos pendentes (PENDENTE/RETRY). Aguardando…")
-        time.sleep(1.0)
+        _stop_event.wait(1.0)
         continue
 
       job = jobs[0]
@@ -818,7 +818,7 @@ def worker_loop():
       sent_timestamps = [t for t in sent_timestamps if (time.time() - t) < 60]
       if len(sent_timestamps) >= settings.max_per_minute:
         log_debug("Limitador de envio por minuto atingido. Aguardando…")
-        time.sleep(2.0)
+        _stop_event.wait(2.0)
         continue
 
       set_job_status(job_id, "ENVIANDO", None)
@@ -829,6 +829,8 @@ def worker_loop():
       ok = False
       last_err: str | None = None
       for attempt in range(2):
+        if _stop_event.is_set():
+          break
         try:
           phone = normalize_phone(str(found.get("telefone") or "")) or job.get("telefone")
           log_debug(f"Tentativa {attempt + 1}: envio por telefone={phone!r} (sem busca por nome)")
@@ -839,14 +841,21 @@ def worker_loop():
         except Exception as e:
           last_err = str(e)
           log_debug(f"Tentativa {attempt + 1} falhou: {type(e).__name__}: {last_err}")
-          time.sleep(2.0)
+          if _stop_event.is_set():
+            break
+          _stop_event.wait(2.0)
+
+      if _stop_event.is_set():
+        log_debug("Stop detectado durante envio. Abortando worker.")
+        break
 
       if ok:
         log_debug("Envio confirmado. Movendo para /enviados e marcando ENVIADO.")
         update_job(job_id, "ENVIADO", None, sent=True)
         move_file(pdf_path, settings.enviados_dir)
         sent_timestamps.append(time.time())
-        time.sleep(random.uniform(settings.min_delay_sec, settings.max_delay_sec))
+        delay = random.uniform(settings.min_delay_sec, settings.max_delay_sec)
+        _stop_event.wait(delay)
       else:
         err_msg = last_err or "Falha no envio"
         not_ready = "WhatsApp Web não está pronto" in err_msg or "timeout" in err_msg.lower()
@@ -860,17 +869,17 @@ def worker_loop():
             if msg2 and msg2 != "Operação cancelada":
               _worker_last_error = msg2
             log_debug(f"Falha ao re-abrir WhatsApp Web: {msg2}")
-          time.sleep(1.0)
+          _stop_event.wait(1.0)
         else:
           attempts_so_far = int(job.get("tentativas") or 0)
           if attempts_so_far < 5:
             log_debug(f"Falha de envio. Marcando RETRY (tentativas={attempts_so_far + 1}). Erro={err_msg!r}")
             update_job(job_id, "RETRY", err_msg, sent=False)
-            time.sleep(1.0)
+            _stop_event.wait(1.0)
           else:
             log_debug(f"Falha de envio. Marcando ERRO definitivo (tentativas={attempts_so_far + 1}). Erro={err_msg!r}")
             update_job(job_id, "ERRO", err_msg, sent=False)
-            time.sleep(1.0)
+            _stop_event.wait(1.0)
   except Exception as e:
     msg = str(e) or "Falha inesperada no worker"
     if msg != "Operação cancelada":

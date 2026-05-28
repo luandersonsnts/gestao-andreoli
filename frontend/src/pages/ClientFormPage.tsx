@@ -32,6 +32,8 @@ import type { CotaInput, Cliente } from "../api/types";
 import { getApiUrl } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import type { ApiError } from "../api/http";
+import { PageHeader } from "../components/PageHeader";
+import { PhoneInput, displayPhone, unmaskPhone } from "../components/PhoneInput";
 
 function toDateInput(value: string | null | undefined): string {
   if (!value) return "";
@@ -54,6 +56,7 @@ function emptyCota(): CotaInput {
     grupo: "",
     cota: "",
     dataEntrada: new Date().toISOString(),
+    status: "ativo",
     administradora: "",
     assembleiaDia: null,
     vencimentoDiaMensal: null,
@@ -69,6 +72,10 @@ function emptyCota(): CotaInput {
   };
 }
 
+function verificarPrimeiraParcelaPaga(cotas: CotaInput[]): boolean {
+  return cotas.some(c => c.parcela1 != null);
+}
+
 export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
   const { state } = useAuth();
   const navigate = useNavigate();
@@ -82,7 +89,8 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
   const [telefone, setTelefone] = useState("");
   const [categoria, setCategoria] = useState<"VIP" | "NORMAL" | "RISCO">("NORMAL");
   const [pontuacaoRanking, setPontuacaoRanking] = useState<number>(0);
-  const [active, setActive] = useState(true);
+  const [statusCliente, setStatusCliente] = useState<"ativo" | "desistente" | "excluido">("ativo");
+  const [motivoDesistencia, setMotivoDesistencia] = useState<string>("");
   const [dataNascimento, setDataNascimento] = useState("");
   const [tirouFoto, setTirouFoto] = useState(false);
   const [observacoes, setObservacoes] = useState("");
@@ -106,10 +114,11 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
       const r = await getClient(id);
       setCliente(r.cliente);
       setNome(r.cliente.nome);
-      setTelefone(r.cliente.telefone ?? "");
+      setTelefone(displayPhone(r.cliente.telefone));
       setCategoria(r.cliente.categoria ?? "NORMAL");
       setPontuacaoRanking(Number.isFinite(r.cliente.pontuacaoRanking) ? r.cliente.pontuacaoRanking : 0);
-      setActive(r.cliente.active ?? true);
+      setStatusCliente(r.cliente.statusCliente ?? "ativo");
+      setMotivoDesistencia(r.cliente.motivoDesistencia ?? "");
       setDataNascimento(toDateInput(r.cliente.dataNascimento));
       setTirouFoto(r.cliente.tirouFoto);
       setObservacoes(r.cliente.observacoes ?? "");
@@ -118,6 +127,7 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
           grupo: c.grupo,
           cota: c.cota,
           dataEntrada: c.dataEntrada,
+          status: c.status ?? "ativo",
           administradora: c.administradora,
           assembleiaDia: c.assembleiaDia,
           vencimentoDiaMensal: c.vencimentoDiaMensal,
@@ -140,13 +150,50 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
   const canEdit = state.status === "authenticated" && state.user.role !== "LEITURA";
   const canDelete = state.status === "authenticated" && state.user.role === "ADMIN";
 
+  // Derived state for the UI Toggle
+  const hasPrimeiraParcela = verificarPrimeiraParcelaPaga(cotas);
+  const estadoVisual = statusCliente === "desistente" 
+    ? "desistente" 
+    : statusCliente === "excluido" 
+      ? "excluido"
+      : (hasPrimeiraParcela ? "ativo" : "inativo_auto");
+
+  // When changing status manually
+  const handleStatusChange = (newStatus: "ativo" | "desistente" | "excluido") => {
+    setStatusCliente(newStatus);
+    if (newStatus === "desistente" && !motivoDesistencia) {
+      setMotivoDesistencia("Desistiu após pagamento inicial");
+    } else if (newStatus === "excluido" && !motivoDesistencia) {
+      setMotivoDesistencia("Não pagou a primeira parcela");
+    }
+  };
+
   const onSave = async () => {
     if (!canEdit) return;
     if (busy) return;
+
     if (!nome.trim()) {
       setSnack({ open: true, severity: "error", message: "Informe o nome completo." });
       return;
     }
+
+    // Alertas (Confirmações)
+    let telefoneFormatado = unmaskPhone(telefone);
+    if (!telefoneFormatado.trim()) {
+      if (!window.confirm("Aviso: Cliente sem telefone. Deseja salvar mesmo assim?")) return;
+    }
+
+    if (nome.trim().split(" ").length < 2) {
+      if (!window.confirm("Aviso: Nome parece estar incompleto (sem sobrenome). Deseja salvar mesmo assim?")) return;
+    }
+
+    if (statusCliente === "desistente" && !motivoDesistencia.trim()) {
+      if (!window.confirm("Aviso: Cliente desistente, mas sem motivo. Deseja salvar mesmo assim?")) return;
+    }
+    if (statusCliente === "excluido" && !motivoDesistencia.trim()) {
+      if (!window.confirm("Aviso: Cliente excluído, mas sem motivo. Deseja salvar mesmo assim?")) return;
+    }
+
     if (dataNascimento) {
       const birthIso = toIsoOrNull(dataNascimento);
       if (!birthIso) {
@@ -156,9 +203,20 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
     }
     for (let i = 0; i < cotas.length; i += 1) {
       const c = cotas[i]!;
-      if (!c.grupo.trim() || !c.cota.trim() || !c.administradora.trim()) {
+      if (c.status === "inativo") continue; // Pula validações para cotas inativas
+      if (!c.grupo.trim() || !c.cota.trim()) {
         setExpanded(i);
-        setSnack({ open: true, severity: "error", message: `Preencha Grupo, Cota e Administradora na cota #${i + 1}.` });
+        setSnack({ open: true, severity: "error", message: `Preencha Grupo e Cota na cota #${i + 1}.` });
+        return;
+      }
+      if (!c.administradora.trim()) {
+        setExpanded(i);
+        setSnack({ open: true, severity: "error", message: `Preencha Administradora na cota #${i + 1}.` });
+        return;
+      }
+      if (c.contemplado && (!c.dataContemplacao || !c.parcelaContemplacao)) {
+        setExpanded(i);
+        setSnack({ open: true, severity: "error", message: `Preencha os campos obrigatórios da contemplação na cota #${i + 1}.` });
         return;
       }
       if (!c.dataEntrada || !isValidDateValue(c.dataEntrada)) {
@@ -169,18 +227,31 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
     }
 
     setBusy(true);
+
+    const isDesistente = statusCliente === "desistente" || statusCliente === "excluido";
+    let dataDesist = cliente?.dataDesistencia;
+    if (isDesistente && !dataDesist) {
+      dataDesist = new Date().toISOString();
+    } else if (!isDesistente) {
+      dataDesist = null;
+    }
+
     const payload = {
       nome,
-      telefone: telefone ? telefone : null,
+      telefone: telefoneFormatado ? telefoneFormatado : null,
       pontuacaoRanking: Number.isFinite(pontuacaoRanking) ? pontuacaoRanking : 0,
       categoria,
-      active,
+      active: statusCliente === "ativo" && hasPrimeiraParcela,
+      statusCliente,
+      motivoDesistencia: isDesistente ? (motivoDesistencia || null) : null,
+      dataDesistencia: dataDesist,
       dataNascimento: toIsoOrNull(dataNascimento),
       tirouFoto,
       observacoes: observacoes || null,
       cotas: cotas.map((c) => ({
         ...c,
         dataEntrada: new Date(c.dataEntrada).toISOString(),
+        status: c.status ?? "ativo",
         dataContemplacao: c.dataContemplacao ? new Date(c.dataContemplacao).toISOString() : null,
         parcela1: c.parcela1 ? new Date(c.parcela1).toISOString() : null,
         parcela2: c.parcela2 ? new Date(c.parcela2).toISOString() : null,
@@ -222,33 +293,30 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
   if (!loaded) return null;
 
   return (
-    <Grid container spacing={2}>
+    <Grid container spacing={3}>
       <Grid item xs={12}>
-        <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={1}>
-          <Box>
-            <Typography variant="h5">{mode === "create" ? "Novo cliente" : "Editar cliente"}</Typography>
-            {isVipPreview ? (
-              <Typography variant="body2" color="warning.main">
-                Cliente VIP (mais de 2 cotas)
-              </Typography>
-            ) : null}
-          </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} gap={1} alignItems={{ sm: "center" }}>
-            {mode === "edit" && canDelete ? (
-              <Button color="error" variant="outlined" onClick={onDelete} sx={{ width: { xs: "100%", sm: "auto" } }}>
-                Excluir
+        <PageHeader
+          title={mode === "create" ? "Novo cliente" : "Editar cliente"}
+          subtitle={isVipPreview ? "Cliente VIP (mais de 2 cotas)" : undefined}
+          titleProps={{ color: isVipPreview ? "warning.main" : "text.primary" }}
+          action={
+            <Stack direction={{ xs: "column", sm: "row" }} gap={2} alignItems={{ sm: "center" }}>
+              {mode === "edit" && canDelete ? (
+                <Button color="error" variant="outlined" onClick={onDelete} sx={{ width: { xs: "100%", sm: "auto" } }}>
+                  Excluir
+                </Button>
+              ) : null}
+              <Button
+                variant="contained"
+                onClick={onSave}
+                disabled={busy || !canEdit || !nome || cotas.length === 0}
+                sx={{ width: { xs: "100%", sm: "auto" } }}
+              >
+                Salvar
               </Button>
-            ) : null}
-            <Button
-              variant="contained"
-              onClick={onSave}
-              disabled={busy || !canEdit || !nome || cotas.length === 0}
-              sx={{ width: { xs: "100%", sm: "auto" } }}
-            >
-              Salvar
-            </Button>
-          </Stack>
-        </Stack>
+            </Stack>
+          }
+        />
       </Grid>
 
       {!canEdit ? (
@@ -260,6 +328,7 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
       <Grid item xs={12} md={8}>
         <Card>
           <CardContent sx={{ display: "grid", gap: 2 }}>
+            <Typography variant="h6">Dados do Cliente</Typography>
             <TextField
               label="Nome completo"
               value={nome}
@@ -267,7 +336,7 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
               fullWidth
               disabled={!canEdit}
             />
-            <TextField
+            <PhoneInput
               label="Telefone (WhatsApp com DDD)"
               value={telefone}
               onChange={(e) => setTelefone(e.target.value)}
@@ -302,10 +371,48 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
                 />
               </Grid>
             </Grid>
-            <FormControlLabel
-              control={<Switch checked={active} onChange={(e) => setActive(e.target.checked)} disabled={!canEdit} color="success" />}
-              label="Cliente ativo"
-            />
+            <Box sx={{ border: "1px solid", borderColor: "divider", p: 2, borderRadius: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Status e Situação do Cliente</Typography>
+              <FormControl fullWidth size="small" disabled={!canEdit} sx={{ mb: 2 }}>
+                <InputLabel id="status-label">Status Operacional</InputLabel>
+                <Select
+                  labelId="status-label"
+                  label="Status Operacional"
+                  value={statusCliente}
+                  onChange={(e) => handleStatusChange(e.target.value as "ativo" | "desistente" | "excluido")}
+                  renderValue={(val) => {
+                    if (val === "desistente") return "❌ Desistente (manual)";
+                    if (val === "excluido") return "🗑️ Excluído (não pagou 1ª)";
+                    if (val === "ativo" && !hasPrimeiraParcela) return "⚠️ Inativo (não pagou 1ª parcela)";
+                    return "✅ Cliente ativo";
+                  }}
+                >
+                  <MenuItem value="ativo">
+                    {hasPrimeiraParcela ? "✅ Cliente ativo" : "⚠️ Inativo (não pagou 1ª parcela)"}
+                  </MenuItem>
+                  <MenuItem value="desistente">❌ Desistente (após pagar)</MenuItem>
+                  <MenuItem value="excluido">🗑️ Excluído (não pagou 1ª)</MenuItem>
+                </Select>
+              </FormControl>
+
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                {estadoVisual === "ativo" && "Cliente ativo normalmente."}
+                {estadoVisual === "inativo_auto" && "Cliente ainda não efetuou o pagamento da 1ª parcela."}
+                {estadoVisual === "desistente" && "Cliente desistiu da cota."}
+                {estadoVisual === "excluido" && "Cliente foi excluído por falta de pagamento inicial."}
+              </Typography>
+
+              {(statusCliente === "desistente" || statusCliente === "excluido") && (
+                <TextField
+                  label="Motivo da desistência"
+                  value={motivoDesistencia}
+                  onChange={(e) => setMotivoDesistencia(e.target.value)}
+                  fullWidth
+                  disabled={!canEdit}
+                  size="small"
+                />
+              )}
+            </Box>
             <TextField
               label="Data de nascimento"
               type="date"
@@ -410,11 +517,12 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ width: "100%" }} gap={1}>
                     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
-                      <Typography variant="subtitle2">
+                      <Typography variant="subtitle2" sx={{ color: c.status === "inativo" ? "text.secondary" : "text.primary", textDecoration: c.status === "inativo" ? "line-through" : "none" }}>
                         {c.grupo || "-"} - {c.cota || "-"} • {c.administradora || "Administradora"}
                       </Typography>
-                      {c.contemplado ? <Chip size="small" color="success" label="Contemplado" /> : null}
-                      {idx === 0 ? <Chip size="small" color="default" label="Principal" /> : null}
+                      {c.status === "inativo" ? <Chip size="small" color="default" label="Cancelada / Desistente" /> : null}
+                      {c.contemplado && c.status !== "inativo" ? <Chip size="small" color="success" label="Contemplado" /> : null}
+                      {idx === 0 && c.status !== "inativo" ? <Chip size="small" color="default" label="Principal" /> : null}
                     </Stack>
                     <Stack direction="row" alignItems="center" gap={1}>
                       <Typography variant="caption" color="text.secondary">
@@ -525,6 +633,25 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
                     />
                   </Grid>
 
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth size="small" disabled={!canEdit}>
+                      <InputLabel id={`status-cota-${idx}`}>Status da Cota</InputLabel>
+                      <Select
+                        labelId={`status-cota-${idx}`}
+                        label="Status da Cota"
+                        value={c.status ?? "ativo"}
+                        onChange={(e) =>
+                          setCotas((prev) =>
+                            prev.map((p, i) => (i === idx ? { ...p, status: e.target.value as "ativo" | "inativo" } : p))
+                          )
+                        }
+                      >
+                        <MenuItem value="ativo">Ativa (Pagando)</MenuItem>
+                        <MenuItem value="inativo">Inativa / Cancelada</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
                   <Grid item xs={12}>
                     <Divider />
                   </Grid>
@@ -589,43 +716,47 @@ export function ClientFormPage({ mode }: { mode: "create" | "edit" }) {
                     />
                   </Grid>
 
-                  <Grid item xs={12} sm={4}>
-                    <TextField
-                      label="Parcela da contemplação"
-                      value={c.parcelaContemplacao ?? ""}
-                      onChange={(e) =>
-                        setCotas((prev) =>
-                          prev.map((p, i) =>
-                            i === idx
-                              ? { ...p, parcelaContemplacao: e.target.value ? Number(e.target.value) : null }
-                              : p
-                          )
-                        )
-                      }
-                      type="number"
-                      fullWidth
-                      disabled={!canEdit}
-                      size="small"
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <TextField
-                      label="Data de contemplação"
-                      type="date"
-                      value={toDateInput(c.dataContemplacao)}
-                      onChange={(e) =>
-                        setCotas((prev) =>
-                          prev.map((p, i) =>
-                            i === idx ? { ...p, dataContemplacao: toIsoOrNull(e.target.value) } : p
-                          )
-                        )
-                      }
-                      InputLabelProps={{ shrink: true }}
-                      fullWidth
-                      disabled={!canEdit}
-                      size="small"
-                    />
-                  </Grid>
+                  {c.contemplado && (
+                    <>
+                      <Grid item xs={12} sm={4}>
+                        <TextField
+                          label="Parcela da contemplação"
+                          value={c.parcelaContemplacao ?? ""}
+                          onChange={(e) =>
+                            setCotas((prev) =>
+                              prev.map((p, i) =>
+                                i === idx
+                                  ? { ...p, parcelaContemplacao: e.target.value ? Number(e.target.value) : null }
+                                  : p
+                              )
+                            )
+                          }
+                          type="number"
+                          fullWidth
+                          disabled={!canEdit}
+                          size="small"
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <TextField
+                          label="Data de contemplação"
+                          type="date"
+                          value={toDateInput(c.dataContemplacao)}
+                          onChange={(e) =>
+                            setCotas((prev) =>
+                              prev.map((p, i) =>
+                                i === idx ? { ...p, dataContemplacao: toIsoOrNull(e.target.value) } : p
+                              )
+                            )
+                          }
+                          InputLabelProps={{ shrink: true }}
+                          fullWidth
+                          disabled={!canEdit}
+                          size="small"
+                        />
+                      </Grid>
+                    </>
+                  )}
                 </Grid>
 
                 <Divider sx={{ my: 2 }} />

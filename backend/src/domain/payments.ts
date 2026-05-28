@@ -125,6 +125,7 @@ export function isCotaEmAtraso(
     | "vencimentoDiaMensal"
     | "antecedenciaPrimeiraParcelaDias"
     | "grupo"
+    | "status"
     | "parcela1"
     | "parcela2"
     | "parcela3"
@@ -133,6 +134,8 @@ export function isCotaEmAtraso(
   >,
   today = new Date()
 ) {
+  if (cota.status === "inativo") return false;
+
   const { paidCount, lastPaid } = getPagamentoResumo(cota);
   const expected = getExpectedPaidCountByToday(cota, today);
 
@@ -149,6 +152,8 @@ export function getCotaAtrasoDetalhes(
   cota: Parameters<typeof isCotaEmAtraso>[0],
   today = new Date()
 ): { cotasEmAtraso: 0 | 1; parcelasEmAtraso: number } {
+  if (cota.status === "inativo") return { cotasEmAtraso: 0, parcelasEmAtraso: 0 };
+
   const { paidCount, lastPaid } = getPagamentoResumo(cota);
   const expected = getExpectedPaidCountByToday(cota, today);
 

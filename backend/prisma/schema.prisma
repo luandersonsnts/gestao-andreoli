@@ -41,6 +41,9 @@ model Cliente {
   nome        String
   telefone    String?
   active      Boolean  @default(true)
+  statusCliente String   @default("ativo") // Pode ser 'ativo', 'desistente', ou 'excluido'
+  motivoDesistencia String?
+  dataDesistencia DateTime?
   pontuacaoRanking Int @default(0)
   categoria   ClienteCategoria @default(NORMAL)
   dataNascimento DateTime?
@@ -67,6 +70,7 @@ model Cota {
   assembleiaDia      Int?
   vencimentoDiaMensal Int?
   antecedenciaPrimeiraParcelaDias Int?
+  status             String   @default("ativo")
   statusPagamento    StatusPagamento @default(PENDENTE)
   contemplado        Boolean  @default(false)
   parcelaContemplacao Int?
@@ -76,6 +80,7 @@ model Cota {
   parcela3           DateTime?
   parcela4           DateTime?
   parcela5           DateTime?
+  boletosEnvios      BoletoEnvio[]
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
